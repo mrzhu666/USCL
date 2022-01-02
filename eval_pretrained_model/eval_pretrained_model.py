@@ -13,6 +13,16 @@ import torch.optim as optim
 from tools.my_dataset import COVIDDataset
 from resnet_uscl import ResNetUSCL
 
+
+
+server_path=''
+result = os.popen('echo "$USER"')  
+user = result.read().strip()
+if(user=='mrzhu'):
+    server_path ='/home/mrzhu/data/'
+elif(user=='student'):
+    server_path='/mnt/sdb2/.RECYCLE.BIN/data'
+
 apex_support = False
 try:
     sys.path.append('./apex')
@@ -72,7 +82,10 @@ def main():
         print('\nThe ImageNet pretrained parameters are not loaded.')
 
     if selfsup: # import pretrained model weights
-        state_dict = torch.load(state_dict_path)
+        if(device=='cuda'):
+            state_dict = torch.load(state_dict_path)
+        else:
+            state_dict = torch.load(state_dict_path,map_location=torch.device('cpu'))
         new_dict = {k: state_dict[k] for k in list(state_dict.keys())
                     if not (k.startswith('l')
                             | k.startswith('fc'))}  # # discard MLP and fc
@@ -272,7 +285,7 @@ if __name__ == '__main__':
         confusion_matrix = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
         for i in range(1, 6):
             print('\n' + '='*20 + 'The training of fold {} start.'.format(i) + '='*20)
-            data_dir = "./covid_5_fold/covid_data{}.pkl".format(i)
+            data_dir = server_path+"covid_5_fold/covid_data{}.pkl".format(i)
             best_classification_results = main()
             confusion_matrix = confusion_matrix + np.array(best_classification_results)
 
