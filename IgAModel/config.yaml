@@ -1,0 +1,30 @@
+
+user:
+  student:
+    server_path: /mnt/sdb2/.RECYCLE.BIN/data/
+  mrzhu:
+    server_path: /home/mrzhu/data/
+
+# dataset:
+#   label:
+#     covid19: 0
+#     pneumonia: 1
+#     regular: 2 
+#   datadir: covid_5_fold/covid_data{}.pkl
+#   fold: 5  # 折数 default 5
+
+dataset:
+  label:
+    normal: 0
+    abnormal: 1
+  datadir: MedicalDiagnosis/IgA_data{}.pkl
+  fold: 5  # 折数 default 5
+
+
+param:
+  seed: 1
+  epoch: 50  # default = 100
+  batch_size: 32  # default=32
+  LR: 0.0014  # default = 0.01
+  weight_decay: 0.005   # default = 1e-4  正则化参数，防止过拟合
+  selfsup: True  # default=True

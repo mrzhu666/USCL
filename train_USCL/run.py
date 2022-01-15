@@ -8,6 +8,7 @@ from data_aug.dataset_wrapper_Ultrasound_Video_Mixup import DataSetWrapper     #
 
 
 def main():
+    # 样本数？
     # Totalcases = 1051    # US-4
     # Totalcases = 63      # CLUST
     # Totalcases = 296     # Liver

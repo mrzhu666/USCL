@@ -10,26 +10,22 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torch.optim as optim
-    
 from tools.my_dataset import COVIDDataset
 from resnet_uscl import ResNetUSCL
+from setting import config
+from torchsampler import ImbalancedDatasetSampler
 
+result=os.popen('echo "$USER"')
+user=result.read().strip()
+server_path=config['user'][user]['server_path']
 
-
-server_path=''
-result = os.popen('echo "$USER"')  
-user = result.read().strip()
-if(user=='mrzhu'):
-    server_path ='/home/mrzhu/data/'
-elif(user=='student'):
-    server_path='/mnt/sdb2/.RECYCLE.BIN/data/'
 
 apex_support = False
 try:
     sys.path.append('./apex')
     from apex import amp
     print("Apex on, run on mixed precision.")
-    apex_support = True
+    apex_support = False
 except:
     print("Please install apex for mixed precision training from: https://github.com/NVIDIA/apex")
     apex_support = False
@@ -50,15 +46,25 @@ def set_seed(seed=1):
     torch.cuda.manual_seed(seed)
 
 def main():
+    """返回某次epoch中最佳概率"""
     # ============================ step 1/5 data ============================
     # transforms
+    
     train_transform = transforms.Compose([
+        transforms.GaussianBlur((3,3)),
         transforms.Resize((224, 224)),
         transforms.RandomResizedCrop(size=224, scale=(0.8, 1.0), ratio=(0.8, 1.25)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.25,0.25,0.25])
     ])
+    # train_transform = transforms.Compose([
+    #     transforms.Resize((224, 224)),
+    #     transforms.RandomResizedCrop(size=224, scale=(0.8, 1.0), ratio=(0.8, 1.25)),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.25,0.25,0.25])
+    # ])
 
     valid_transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -71,12 +77,14 @@ def main():
     valid_data = COVIDDataset(data_dir=data_dir, train=False, transform=valid_transform)
 
     # DataLoder
-    train_loader = DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
+    # train_loader = DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True,sampler=ImbalancedDatasetSampler(train_data))
+    train_loader = DataLoader(dataset=train_data, batch_size=BATCH_SIZE, sampler=ImbalancedDatasetSampler(train_data))
     valid_loader = DataLoader(dataset=valid_data, batch_size=BATCH_SIZE)
 
     # ============================ step 2/5 model ============================
 
-    net = ResNetUSCL(base_model='resnet18', out_dim=256, pretrained=pretrained)
+    net = ResNetUSCL(base_model='resnet18', out_dim=256, num_classes=classes, pretrained=pretrained)
+    # net = ResNetUSCL(base_model='resnet18', out_dim=classes, pretrained=pretrained)
     if pretrained:
         print('\nThe ImageNet pretrained parameters are loaded.')
     else:
@@ -102,15 +110,26 @@ def main():
     # for param in net.parameters():
     #     param.requires_grad = False
 
-    # fine-tune last 3 layers
+    # fine-tune last 3 layers，前面冻结
+    # 后面还有一层连接层
     for name, param in net.named_parameters():
         if not name.startswith('features.7.1'):
             param.requires_grad = False
+        else:
+            break
+    # for name, param in net.named_parameters():
+    #     if not name.startswith('model'):
+    #         param.requires_grad = False
+    #     else:
+    #         break
 
     # add a classifier for linear evaluation
-    num_ftrs = net.linear.in_features
-    net.linear = nn.Linear(num_ftrs, 3)
-    net.fc = nn.Linear(3, 3)
+    # num_ftrs = net.linear.in_features  # 512
+    # net.linear = nn.Linear(num_ftrs, classes)  
+    # net.fc = nn.Linear(classes, classes) # fc是？？？
+
+    # net.linear = nn.Linear(num_ftrs, 3)  # 故意的？
+    # net.fc = nn.Linear(3, 3)
 
     for name, param in net.named_parameters():
         print(name, '\t', 'requires_grad=', param.requires_grad)
@@ -136,14 +155,17 @@ def main():
     reached = 0    # which epoch reached the max accuracy
 
     # the statistics of classification result: classification_results[true][pred]
-    classification_results = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+    classification_results = [[0]*classes for _ in range(classes)]
     best_classification_results = None
 
+    # ????
     if apex_support and fp16_precision:
         net, optimizer = amp.initialize(net, optimizer,
                                         opt_level='O2',
                                         keep_batchnorm_fp32=True)
-    for epoch in tqdm(range(MAX_EPOCH)):
+                                        
+    # for epoch in tqdm(range(MAX_EPOCH)):
+    for epoch in range(MAX_EPOCH):
 
         loss_mean = 0.
         correct = 0.
@@ -177,79 +199,79 @@ def main():
             # print training information
             loss_mean += loss.item()
             train_curve.append(loss.item())
-            if (i+1) % log_interval == 0:
-                loss_mean = loss_mean / log_interval
-                print("\nTraining:Epoch[{:0>3}/{:0>3}] Iteration[{:0>3}/{:0>3}] Loss: {:.4f} Acc:{:.2%}".format(
-                    epoch, MAX_EPOCH, i+1, len(train_loader), loss_mean, correct / total))
-                loss_mean = 0.
+            # if (i+1) % log_interval == 0:
+            #     loss_mean = loss_mean / log_interval
+            #     print("\nTraining:Epoch[{:0>3}/{:0>3}] Iteration[{:0>3}/{:0>3}] Loss: {:.4f} Acc:{:.2%}".format(
+            #         epoch, MAX_EPOCH, i+1, len(train_loader), loss_mean, correct / total))
+            #     loss_mean = 0.
 
-        print('Learning rate this epoch:', scheduler.get_last_lr()[0])
+
+        loss_mean = loss_mean / log_interval
+        print("\nEpoch[{:0>3}/{:0>3}] Training Loss: {:.4f} Acc:{:.2%}".format(
+            epoch, MAX_EPOCH, loss_mean, correct / total),end='')
+        loss_mean = 0.
+
+        learning_rate=scheduler.get_last_lr()[0]
+        # print('Learning rate this epoch:', scheduler.get_last_lr()[0])
         scheduler.step()  # updata learning rate
 
         # validate the model
-        if (epoch+1) % val_interval == 0:
+        # if (epoch+1) % val_interval == 0:
 
-            correct_val = 0.
-            total_val = 0.
-            loss_val = 0.
-            net.eval()
-            with torch.no_grad():
-                for j, data in enumerate(valid_loader):
-                    inputs, labels = data
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-                    outputs = net(inputs)
-                    loss = criterion(outputs, labels)
+        correct_val = 0.
+        total_val = 0.
+        loss_val = 0.
+        net.eval()
+        with torch.no_grad():
+            for j, data in enumerate(valid_loader):
+                inputs, labels = data
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outputs = net(inputs)
+                loss = criterion(outputs, labels)
 
-                    _, predicted = torch.max(outputs.data, 1)
-                    total_val += labels.size(0)
-                    correct_val += (predicted == labels).cpu().squeeze().sum().numpy()
-                    for k in range(len(predicted)):
-                        classification_results[labels[k]][predicted[k]] += 1    # "label" is regarded as "predicted"
+                _, predicted = torch.max(outputs.data, 1)
+                total_val += labels.size(0)
+                correct_val += (predicted == labels).cpu().squeeze().sum().numpy()
+                for k in range(len(predicted)):
+                    classification_results[labels[k]][predicted[k]] += 1    # "label" is regarded as "predicted"
 
-                    loss_val += loss.item()
+                loss_val += loss.item()
 
-                acc = correct_val / total_val
-                if acc > max_acc:   # record best accuracy
-                    max_acc = acc
-                    reached = epoch
-                    best_classification_results = classification_results
-                classification_results = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
-                valid_curve.append(loss_val/valid_loader.__len__())
-                print("Valid:\t Epoch[{:0>3}/{:0>3}] Iteration[{:0>3}/{:0>3}] Loss: {:.4f} Acc:{:.2%}".format(
-                    epoch, MAX_EPOCH, j+1, len(valid_loader), loss_val, acc))
+            acc = correct_val / total_val
+            if acc > max_acc:   # record best accuracy
+                max_acc = acc
+                reached = epoch
+                best_classification_results = classification_results
+            classification_results = [[0]*classes for _ in range(classes)]
+            valid_curve.append(loss_val/valid_loader.__len__())
+            print(" Valid Loss: {:.4f} Acc:{:.2%}".format(
+                loss_val, acc))
+            print('Learning rate this epoch:', learning_rate)
+            print('----------------------------------------------------------------------------------')
 
     print('\nTraining finish, the time consumption of {} epochs is {}s\n'.format(MAX_EPOCH, round(time.time() - start)))
     print('The max validation accuracy is: {:.2%}, reached at epoch {}.\n'.format(max_acc, reached))
 
+
     print('\nThe best prediction results of the dataset:')
-    print('Class 0 predicted as class 0:', best_classification_results[0][0])
-    print('Class 0 predicted as class 1:', best_classification_results[0][1])
-    print('Class 0 predicted as class 2:', best_classification_results[0][2])
-    print('Class 1 predicted as class 0:', best_classification_results[1][0])
-    print('Class 1 predicted as class 1:', best_classification_results[1][1])
-    print('Class 1 predicted as class 2:', best_classification_results[1][2])
-    print('Class 2 predicted as class 0:', best_classification_results[2][0])
-    print('Class 2 predicted as class 1:', best_classification_results[2][1])
-    print('Class 2 predicted as class 2:', best_classification_results[2][2])
-
-    acc0 = best_classification_results[0][0] / sum(best_classification_results[i][0] for i in range(3))
-    recall0 = best_classification_results[0][0] / sum(best_classification_results[0])
-    print('\nClass 0 accuracy:', acc0)
-    print('Class 0 recall:', recall0)
-    print('Class 0 F1:', 2 * acc0 * recall0 / (acc0 + recall0))
-
-    acc1 = best_classification_results[1][1] / sum(best_classification_results[i][1] for i in range(3))
-    recall1 = best_classification_results[1][1] / sum(best_classification_results[1])
-    print('\nClass 1 accuracy:', acc1)
-    print('Class 1 recall:', recall1)
-    print('Class 1 F1:', 2 * acc1 * recall1 / (acc1 + recall1))
-
-    acc2 = best_classification_results[2][2] / sum(best_classification_results[i][2] for i in range(3))
-    recall2 = best_classification_results[2][2] / sum(best_classification_results[2])
-    print('\nClass 2 accuracy:', acc2)
-    print('Class 2 recall:', recall2)
-    print('Class 2 F1:', 2 * acc2 * recall2 / (acc2 + recall2))
+    for i in range(classes):
+        for j in range(classes):
+            print('Class %d predicted as class %d:'%(i,j), best_classification_results[i][j])
+    
+    for i in range(classes):
+        if best_classification_results[i][i]==0:  # 防止除数为0时报错
+            acc=0
+            recall=0
+            print('\nClass %d accuracy:'%(i,), 0)
+            print('Class %d recall:'%(i,), 0)
+            print('Class %d F1:'%(i,), 0)
+        else:
+            acc = best_classification_results[i][i] / sum(best_classification_results[j][i] for j in range(classes))
+            recall = best_classification_results[i][i] / sum(best_classification_results[i])
+            print('\nClass %d accuracy:'%(i,), acc)
+            print('Class %d recall:'%(i,), recall)
+            print('Class %d F1:'%(i,), 2 * acc * recall / (acc + recall))
     
     return best_classification_results
 
@@ -260,21 +282,27 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--path', default='checkpoint', help='folder of ckpt')
     args = parser.parse_args()
 
-    set_seed(1)  # random seed
+    classes=len(config['dataset']['label'])  # 类别数
+    set_seed(config['param']['seed'])  # random seed
 
     # parameters
-    MAX_EPOCH = 100       # default = 100
-    BATCH_SIZE = 32       # default = 32
-    LR = 0.01             # default = 0.01
-    weight_decay = 1e-4   # default = 1e-4
-    log_interval = 10
+    MAX_EPOCH = config['param']['epoch']       # default = 100
+    BATCH_SIZE = config['param']['batch_size']       # default = 32
+    # LR = 0.01             # default = 0.01
+    # weight_decay = 1e-5   # default = 1e-4
+    LR = 0.001             # default = 0.01
+    weight_decay = 5e-3   # default = 1e-4  正则化参数，防止过拟合
+    log_interval = 4
     val_interval = 1
-    base_path = "./eval_pretrained_model/"
+
+    # 论文预训练好的模型，特征提取网络
+    base_path = server_path+"IgAModel/"
     state_dict_path = os.path.join(base_path, args.path, "best_model.pth")
     print('State dict path:', state_dict_path)
+
     fp16_precision = True
     pretrained = False
-    selfsup = True
+    selfsup = config['param']['selfsup']
 
     # save result
     save_dir = os.path.join('result')
@@ -282,35 +310,38 @@ if __name__ == '__main__':
         os.makedirs(save_dir)
     resultfile = save_dir + '/my_result.txt'
 
-    # if (not (os.path.exists(resultfile))) and (os.path.exists(state_dict_path)):
     if (os.path.exists(state_dict_path)):
-        confusion_matrix = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+        confusion_matrix = np.zeros((classes,classes))
         # 五折训练
-        for i in range(1, 6):
+        for i in range(1, config['dataset']['fold']+1):
             print('\n' + '='*20 + 'The training of fold {} start.'.format(i) + '='*20)
-            data_dir = server_path+"covid_5_fold/covid_data{}.pkl".format(i)
+            data_dir = server_path+config['dataset']['datadir'].format(i)
             best_classification_results = main()
             confusion_matrix = confusion_matrix + np.array(best_classification_results)
             print(np.array(best_classification_results))
-            break
 
-        print('\nThe confusion matrix is:')
+        print('\nThe confusion matrix is:\n')
         print(confusion_matrix)
-        print('\nThe precision of class 0 is:', confusion_matrix[0,0] / sum(confusion_matrix[:,0]))
-        print('The precision of class 1 is:', confusion_matrix[1,1] / sum(confusion_matrix[:,1]))
-        print('The precision of class 2 is:', confusion_matrix[2,2] / sum(confusion_matrix[:,2]))
-        print('\nThe recall of class 0 is:', confusion_matrix[0,0] / sum(confusion_matrix[0]))
-        print('The recall of class 1 is:', confusion_matrix[1,1] / sum(confusion_matrix[1]))
-        print('The recall of class 2 is:', confusion_matrix[2,2] / sum(confusion_matrix[2]))
-        print('\nTotal acc is:', (confusion_matrix[0,0]+confusion_matrix[1,1]+confusion_matrix[2,2])/confusion_matrix.sum())
+        for i in range(classes):
+            print('The precision of class '+str(i)+' is:', confusion_matrix[i,i] / sum(confusion_matrix[:,i])) 
+
+        print()
+        for i in range(classes):
+            print('The recall of class '+str(i)+' is:', confusion_matrix[i,i] / sum(confusion_matrix[i]))
+
+        acc=0
+        for i in range(classes):
+            acc+=confusion_matrix[i,i]
+        acc/=confusion_matrix.sum()
+        print('\nTotal acc is:', acc)
 
         file_handle = open(save_dir + '/my_result.txt', mode='w+')
-        file_handle.write("precision 0: "+str(confusion_matrix[0,0] / sum(confusion_matrix[:,0]))); file_handle.write('\r\n')
-        file_handle.write("precision 1: "+str(confusion_matrix[1,1] / sum(confusion_matrix[:,1]))); file_handle.write('\r\n')
-        file_handle.write("precision 2: "+str(confusion_matrix[2,2] / sum(confusion_matrix[:,2]))); file_handle.write('\r\n')
-        file_handle.write("recall 0: "+str(confusion_matrix[0,0] / sum(confusion_matrix[0]))); file_handle.write('\r\n')
-        file_handle.write("recall 1: "+str(confusion_matrix[1,1] / sum(confusion_matrix[1]))); file_handle.write('\r\n')
-        file_handle.write("recall 2: "+str(confusion_matrix[2,2] / sum(confusion_matrix[2]))); file_handle.write('\r\n')
-        file_handle.write("Total acc: "+str((confusion_matrix[0,0]+confusion_matrix[1,1]+confusion_matrix[2,2])/confusion_matrix.sum()))
+        for i in range(classes):
+            file_handle.write('precision '+str(i)+': '+str(confusion_matrix[i,i] / sum(confusion_matrix[:,i])))
+            file_handle.write('\r\n')
+        for i in range(classes):
+            file_handle.write('recall '+str(i)+': '+str(confusion_matrix[i,i] / sum(confusion_matrix[:,i])))
+            file_handle.write('\r\n')
 
+        file_handle.write("Total acc: "+str(acc))
         file_handle.close()

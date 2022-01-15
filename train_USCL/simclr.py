@@ -8,6 +8,15 @@ import shutil
 import sys
 import time
 import torch.nn as nn
+from tqdm import tqdm
+
+server_path=''
+result = os.popen('echo "$USER"')  
+user = result.read().strip()
+if(user=='mrzhu'):
+    server_path ='/home/mrzhu/data/'
+elif(user=='student'):
+    server_path='/mnt/sdb2/.RECYCLE.BIN/data/'
 
 apex_support = False
 try:
@@ -16,7 +25,7 @@ try:
 
     print("Apex on, run on mixed precision.")
 
-    apex_support = True
+    # apex_support = True
 except:
     print("Please install apex for mixed precision training from: https://github.com/NVIDIA/apex")
     apex_support = False
@@ -98,7 +107,7 @@ class SimCLR(object):
                                               keep_batchnorm_fp32=True)
 
         model_checkpoints_folder = os.path.join(
-            '/home/zhangchunhui/MedicalAI/USCL/checkpoints_multi_aug',
+            server_path+'USCL/checkpoints_multi_aug',
             'checkpoint_' + str(self.Checkpoint_Num))
 
         # save config file
@@ -109,7 +118,7 @@ class SimCLR(object):
         valid_n_iter = 0
         best_valid_loss = np.inf
 
-        for epoch in range(self.config['epochs']):
+        for epoch in tqdm(range(self.config['epochs'])):
             for i, data in enumerate(train_loader, 1):
                 # forward
                 # mixupimg1, label1, mixupimg2, label2, original img1, original img2

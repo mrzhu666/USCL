@@ -15,6 +15,14 @@ from data_aug.sharpen import Sharpen
 
 np.random.seed(0)
 
+server_path=''
+result = os.popen('echo "$USER"')  
+user = result.read().strip()
+if(user=='mrzhu'):
+    server_path ='/home/mrzhu/data/'
+elif(user=='student'):
+    server_path='/mnt/sdb2/.RECYCLE.BIN/data/'
+
 
 class USDataset_video(Dataset):
 
@@ -24,7 +32,7 @@ class USDataset_video(Dataset):
         :param data_dir: str
         :param transform: torch.transform
         """
-
+        # US-4 是四个数据集联合
         # self.label_name = {"Rb1": 0, "Rb2": 1, "Rb3": 2, "Rb4": 3, "Rb5": 4, "F0_": 5, "F1_": 6, "F2_": 7, "F3_": 8, "F4_": 9,
         #                    "Reg": 10, "Cov": 11, "Ali": 10, "Bli": 11, "Ple": 11, "Oth": 11}   # US-4
         # self.label_name = {"Rb1": 0, "Rb2": 1, "Rb3": 2, "Rb4": 3, "Rb5": 4}    # CLUST
@@ -50,13 +58,25 @@ class USDataset_video(Dataset):
             img1 = Image.open(path_img[0]).convert('RGB')     # 0~255
             img2 = Image.open(path_img[1]).convert('RGB')     # 0~255
             img3 = Image.open(path_img[2]).convert('RGB')     # 0~255
+            
+            left,right=35,38
+            if user=='mrzhu':
+                left,right=23,26
+            elif user=='student':
+                left,right=34,37
+            else:
+                raise BaseException('No user.')
 
             if index in self.LabelList:
                 # path_imgs[0]: '/home/zhangchunhui/MedicalAI/Butte/Cov-Cardiomyopathy_mp4/Cov-Cardiomyopathy_mp4_frame0.jpg'
                 # path_imgs[0][35:38]: 'Cov'
-                label1 = self.label_name[path_imgs[0][35:38]]
-                label2 = self.label_name[path_imgs[1][35:38]]
-                label3 = self.label_name[path_imgs[2][35:38]]
+                # 为什么这样割取字符？？
+                # label1 = self.label_name[path_imgs[0][35:38]]
+                # label2 = self.label_name[path_imgs[1][35:38]]
+                # label3 = self.label_name[path_imgs[2][35:38]]
+                label1 = self.label_name[path_imgs[0][left:right]]
+                label2 = self.label_name[path_imgs[1][left:right]]
+                label3 = self.label_name[path_imgs[2][left:right]]
 
             else:
                 label1, label2, label3 = 9999, 9999, 9999  # unlabel data = 9999
@@ -195,6 +215,7 @@ class DataSetWrapper(object):
         print(data_augment)
 
         use_video = True
+        # use_video = False
         if use_video:
             print('\nUse video augmentation!')
             # US-4
@@ -211,12 +232,12 @@ class DataSetWrapper(object):
             # train_dataset = USDataset_video("/home/zhangchunhui/MedicalAI/Ultrasound_Datasets_train/COVID/",
             #                                 transform=SimCLRDataTransform(data_augment), LabelList=self.LabelList, DataList=self.DataList)  # augmented from 2 images
             # 1 video-Butte
-            train_dataset = USDataset_video("/home/zhangchunhui/MedicalAI/Butte/",
+            train_dataset = USDataset_video(server_path+"Butte/",
                                             transform=SimCLRDataTransform(data_augment), LabelList=self.LabelList, DataList=self.DataList)  # augmented from 2 images
         else:
             print('\nDo not use video augmentation!')
             # Images
-            train_dataset = USDataset_image("/home/zhangchunhui/MedicalAI/Butte/",
+            train_dataset = USDataset_image(server_path+"Butte/",
                                             transform=SimCLRDataTransform(data_augment), LabelList=self.LabelList, DataList=self.DataList)  # augmented from 1 image
 
         train_loader, valid_loader = self.get_train_validation_data_loaders(train_dataset)

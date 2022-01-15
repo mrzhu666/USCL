@@ -1,0 +1,24 @@
+dataset:
+  datadir: MedicalDiagnosis/IgA_data{}.pkl
+  fold: 5
+  label:
+    abnormal: 1
+    normal: 0
+deploy_model_path: null
+param:
+  LR: 0.0002
+  batch_size: 32
+  epoch: 50
+  seed: 1
+  # selfsup: true
+  selfsup: false
+  weight_decay: 0.0076
+user:
+  mrzhu:
+    deploy_model_path: /home/mrzhu/data/IgAModel/model/IgAModel66_0.775_fold1_2022-01-07
+      19:24:49.pth
+    server_path: /home/mrzhu/data/
+  student:
+    deploy_model_path: /mnt/sdb2/.RECYCLE.BIN/data/IgAModel/model/IgAModel66_0.775_fold1_2022-01-07
+      19:24:49.pth
+    server_path: /mnt/sdb2/.RECYCLE.BIN/data/
